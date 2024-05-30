@@ -53,18 +53,133 @@ def simulation_of_a_microgrid(location, current_time):
     return power_output
 
 
-def simulation_of_a_houshold(location, current_time):
-    power_draw = 0 # kW
 
-    # Use Data from here: https://moodle-ext.thm.de/mod/page/view.php?id=8993
-    # Load data from the dataset and calculate overall powerdraw from
-    # the household at the given time
-    #
-    ## Your Code Here
+def simulation_of_a_household(current_time):
+    power_draw = 0  # kW
 
+    # Load data from a CSV file
+    data = pd.read_csv('C:/Users/domin/Downloads/CESI-THM-Project1-Load-Profile.csv', delimiter=';')
 
-    ##
+    # Columns of interest for the residential building DE_KN_residential4
+    columns_of_interest = [
+        'cet_cest_timestamp',
+        'DE_KN_residential4_dishwasher',
+        'DE_KN_residential4_ev',
+        'DE_KN_residential4_freezer',
+        'DE_KN_residential4_grid_export',
+        'DE_KN_residential4_grid_import',
+        'DE_KN_residential4_heat_pump',
+        'DE_KN_residential4_pv',
+        'DE_KN_residential4_washing_machine',
+        'DE_KN_residential4_refrigerator'
+    ]
+
+    # Select only the columns of interest
+    residential_data = data[columns_of_interest]
+
+    # Convert timestamps to datetime objects
+    residential_data['cet_cest_timestamp'] = pd.to_datetime(residential_data['cet_cest_timestamp'], errors='coerce', utc=True)
+
+    # Fill missing values with zeros (if necessary)
+    residential_data.fillna(0, inplace=True)
+
+    # Define the function to calculate consumption
+    def calculate_total_consumption(row):
+        total_consumption = (
+            row['DE_KN_residential4_dishwasher'] +
+            row['DE_KN_residential4_ev'] +
+            row['DE_KN_residential4_freezer'] +
+            row['DE_KN_residential4_heat_pump'] +
+            row['DE_KN_residential4_washing_machine'] +
+            row['DE_KN_residential4_refrigerator']
+        )
+
+        # Adjust consumption by PV production and grid import/export
+        net_consumption = total_consumption + row['DE_KN_residential4_grid_import'] - row['DE_KN_residential4_grid_export'] - row['DE_KN_residential4_pv']
+        return net_consumption
+
+    # Apply the calculation function to each row of the DataFrame
+    residential_data['total_consumption_kwh'] = residential_data.apply(calculate_total_consumption, axis=1)
+
+    # Add columns for hour, day of the week, and month
+    residential_data['hour'] = residential_data['cet_cest_timestamp'].dt.hour
+    residential_data['day_of_week'] = residential_data['cet_cest_timestamp'].dt.dayofweek
+    residential_data['month'] = residential_data['cet_cest_timestamp'].dt.month
+
+    # Function to adjust consumption based on hourly, daily, and seasonal profiles
+    def adjusted_consumption(hour, day_of_week, month, base_consumption):
+        # Consumption profiles based on the hour (expressed as a multiplicative factor)
+        hourly_profile = {
+            'night': 0.5,
+            'morning': 1.2,
+            'afternoon': 1.0,
+            'evening': 1.5
+        }
+
+        # Consumption profiles based on the day of the week
+        weekday_profile = {
+            'weekday': 1.0,
+            'weekend': 1.1
+        }
+
+        # Consumption profiles based on the season (expressed as a multiplicative factor)
+        seasonal_profile = {
+            'winter': 1.3,
+            'spring': 1.0,
+            'summer': 0.8,
+            'autumn': 1.1
+        }
+
+        # Determine the time of day profile
+        if 0 <= hour < 6:
+            time_of_day = 'night'
+        elif 6 <= hour < 12:
+            time_of_day = 'morning'
+        elif 12 <= hour < 18:
+            time_of_day = 'afternoon'
+        else:
+            time_of_day = 'evening'
+
+        # Determine the day type profile
+        if day_of_week in [0, 1, 2, 3, 4]:  # Monday to Friday
+            day_type = 'weekday'
+        else:
+            day_type = 'weekend'
+
+        # Determine the seasonal profile
+        if month in [12, 1, 2]:
+            season = 'winter'
+        elif month in [3, 4, 5]:
+            season = 'spring'
+        elif month in [6, 7, 8]:
+            season = 'summer'
+        else:
+            season = 'autumn'
+
+        # Adjust consumption based on the profiles
+        adjusted_consumption = (base_consumption * hourly_profile[time_of_day] *
+                                weekday_profile[day_type] * seasonal_profile[season])
+
+        return adjusted_consumption
+
+    # Extract time information from current_time
+    current_time = pd.to_datetime(current_time, utc=True)
+    hour = current_time.hour
+    day_of_week = current_time.dayofweek
+    month = current_time.month
+
+    # Find the row of data closest to current_time
+    closest_row = residential_data.iloc[(residential_data['cet_cest_timestamp'] - current_time).abs().argmin()]
+
+    # Calculate the adjusted consumption for this row
+    base_consumption = closest_row['total_consumption_kwh']
+    power_draw = adjusted_consumption(hour, day_of_week, month, base_consumption)
+
     return power_draw
+
+# Example usage of the function
+current_time = "2023-05-15 14:00:00"
+print(f"Power draw for DE_KN_residential4 at {current_time}: {simulation_of_a_household(current_time)} kW")
 
 
 battery_charge_state = 0
