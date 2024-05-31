@@ -183,28 +183,55 @@ print(f"Power draw for DE_KN_residential4 at {current_time}: {simulation_of_a_ho
 
 
 battery_charge_state = 0
+
 def simulation_of_a_battery_storage(energy_delta, location, current_time):
-    energy_delta_battery = 0  # kW
-    battery_capacity = 10  # kWh
-    battery_charge_efficiency = 0.9  # 90%
-    battery_discharge_efficiency = 0.9  # 90%
-    battery_max_charge_rate = 4  # kW
-    battery_max_discharge_rate = 5  # kW
+    global battery_charge_state
+    
+    battery_capacity = 10
+    battery_charge_efficiency = 0.9
+    battery_discharge_efficiency = 0.9
+    battery_max_charge_rate = 4
+    battery_max_discharge_rate = 5
+    energy_delta_battery = 0
+    current_hour = current_time.hour
 
-    # Calculate the energy_delta of the battery (kWh charged or discharged) depending
-    # on location and current time
-    # discharged -> energy_delta_battery < 0, charged -> energy_delta_battery > 0
-    # Use the battery_charge_state to store state of charge across simulation iterations
-    # Battery can be charged until battery_capacity is reached with speed battery_max_charge_rate
-    # Battery can be discharged until empty with speed battery_max_discharge_rate
-    # Charging and discharging happens with < 100% efficiency
-    #
-    # Depending on the location it might be useful to charge battery at special times
-    # to maximize cost savings
-    #
-    ## Your Code Here
+    if location == "Saint-Nazaire":
+        if 20 <= current_hour or current_hour < 8: # Charge during night (off-peak hours) 20:00 - 08:00
+            energy_delta = abs(energy_delta) # Ensure positive for charging
+        elif 8 <= current_hour < 20: # Discharge during day 08:00 - 20:00
+            energy_delta = -abs(energy_delta) # Ensure negative for discharging
 
-    ##
+    elif location == "Friedberg":
+        if 5 <= current_hour < 21: # Charge during midday (solar abundance)
+            energy_delta = abs(energy_delta) # Ensure positive for charging
+        elif 21 <= current_hour < 5: # Discharge during peak hours
+            energy_delta = -abs(energy_delta) # Ensure negative for discharging
+    # Decide if we are charging or discharging
+    if energy_delta > 0:
+        # Charging
+        # Ensure we do not exceed the max charge rate and battery capacity
+        charge_amount = min(energy_delta, battery_max_charge_rate)
+        effective_charge = charge_amount * battery_charge_efficiency
+        
+        if battery_charge_state + effective_charge > battery_capacity:
+            # Limit to the maximum capacity
+            effective_charge = battery_capacity - battery_charge_state
+        
+        battery_charge_state += effective_charge
+        energy_delta_battery = effective_charge
+    elif energy_delta < 0:
+        # Discharging
+        # Ensure we do not exceed the max discharge rate and do not discharge below 0
+        discharge_amount = min(abs(energy_delta), battery_max_discharge_rate)
+        effective_discharge = discharge_amount / battery_discharge_efficiency
+        
+        if battery_charge_state - effective_discharge < 0:
+            # Limit to the minimum capacity (0)
+            effective_discharge = battery_charge_state
+        
+        battery_charge_state -= effective_discharge
+        energy_delta_battery = -effective_discharge
+
     return energy_delta_battery
 
 
