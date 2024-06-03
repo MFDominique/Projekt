@@ -35,21 +35,67 @@ def simulation_loop(location, startdate, days=1):
                       0,0,0, True)
 
 
+def get_location(location_name):
+    if location_name == "ST_NAZAIRE":
+        # Create Location object for Saint-Nazaire
+        return Location(47.2735, -2.2137, name="Saint-Nazaire")
+    elif location_name == "FRIEDBERG":
+        # Create Location object for Friedberg
+        return Location(50.3351, 8.7555, name="Friedberg")
+    else:
+        raise ValueError("Location not supported")
+
 def simulation_of_a_microgrid(location, current_time):
-    efficiency_of_microgrid = 0.9 # 90%
-    maximum_power_output = 10 # kW
-    power_output = 0 #kW
+    # Microgrid parameters
+    efficiency_of_microgrid = 0.9  # 90%
+    maximum_power_output = 10  # kW
 
-    # Use current_time, maximum_power_output and efficiency_of_microgrid
-    # together with data from pvgis to define current power_output
-    #
-    # Use PVLib for your calculations: https://moodle-ext.thm.de/mod/url/view.php?id=7899
-    # Extend for the use of a location
-    #
-    ## Your Code Here
+    # Get Location object
+    loc = get_location(location)
 
+    # Define the time range for the simulation (just one point in this case)
+    times = pd.DatetimeIndex([current_time])
 
-    ##
+    # Get clear sky data
+    cs = loc.get_clearsky(times)
+
+    # Extract irradiance data
+    dni = cs['dni']  # Direct Normal Irradiance
+    ghi = cs['ghi']  # Global Horizontal Irradiance
+    dhi = cs['dhi']  # Diffuse Horizontal Irradiance
+
+    # Assume the PV system is facing south and tilted at the latitude angle
+    surface_tilt = loc.latitude
+    surface_azimuth = 180
+
+    # Calculate solar position
+    solar_position = loc.get_solarposition(times)
+
+    # Calculate total irradiance on the tilted surface
+    total_irrad = pvlib.irradiance.get_total_irradiance(
+        surface_tilt,
+        surface_azimuth,
+        solar_position['apparent_zenith'],
+        solar_position['azimuth'],
+        dni,
+        ghi,
+        dhi
+    )
+
+    # Assume a simple PV system with a certain efficiency
+    pv_efficiency = 0.15  # 15% efficient PV panels
+    pv_area = maximum_power_output / (pv_efficiency * 1000)  # Area in square meters
+
+    # Calculate the DC power output from the PV system
+    poa_irradiance = total_irrad['poa_global']  # Plane of array irradiance
+    dc_power = poa_irradiance * pv_area * pv_efficiency  # DC power output
+
+    # Convert DC power to AC power
+    ac_power = dc_power * efficiency_of_microgrid
+
+    # Ensure power output does not exceed maximum
+    power_output = min(ac_power.iloc[0], maximum_power_output)
+
     return power_output
 
 
@@ -58,7 +104,7 @@ def simulation_of_a_household(current_time):
     power_draw = 0  # kW
 
     # Load data from a CSV file
-    data = pd.read_csv('C:/Users/domin/Downloads/CESI-THM-Project1-Load-Profile.csv', delimiter=';')
+    data = pd.read_csv('CESI-THM-Project1-Load-Profile.csv', delimiter=';')
 
     # Columns of interest for the residential building DE_KN_residential4
     columns_of_interest = [
@@ -178,8 +224,8 @@ def simulation_of_a_household(current_time):
     return power_draw
 
 # Example usage of the function
-current_time = "2023-05-15 14:00:00"
-print(f"Power draw for DE_KN_residential4 at {current_time}: {simulation_of_a_household(current_time)} kW")
+#current_time = "2023-05-15 14:00:00"
+#print(f"Power draw for DE_KN_residential4 at {current_time}: {simulation_of_a_household(current_time)} kW")
 
 
 battery_charge_state = 0
@@ -237,15 +283,24 @@ def simulation_of_a_battery_storage(energy_delta, location, current_time):
 
 def importing_of_energy_from_the_grid(energy_delta, location, current_time):
     energy_imported_cost = 0 # €
+    
+    if energy_delta > 0:  # Energy deficit, need to import
+        hour = current_time.hour
 
-    # Calculate electricity price for location at given time for energy consumed
-    # "The price of the electricity off-peak (from 20h to 8h) in France is
-    # 0,20458€ and 0,26706€ in peak (from 8h to 20h)."
-    # The price for electricity in Germany is fixed. Use 0,3194€
-    #
-    ## Your Code Here
+        if location == "FRIEDBERG":
+            # Fixed electricity price in Germany
+            price_per_kwh = 0.3194
 
-    ##
+        elif location == "ST_NAZAIRE":
+            # Peak and off-peak electricity prices in France
+            if 8 <= hour < 20:  # Peak hours
+                price_per_kwh = 0.26706
+            else:  # Off-peak hours
+                price_per_kwh = 0.20458
+
+        # Calculate cost
+        energy_imported_cost = energy_delta * price_per_kwh
+
     return energy_imported_cost
 
 
@@ -253,8 +308,8 @@ data = []
 def visualize_results(power_output_microgrid, power_usage_household, energy_delta_battery,
                       energy_imported_cost, current_time, location, plot_data=False):
     data_in_timestep = [power_output_microgrid, power_usage_household,
-                        power_usage_household, energy_delta_battery,
-                        energy_imported_cost, current_time]
+                        energy_delta_battery, energy_imported_cost, 
+                        current_time]
     if not plot_data:
         data.append(data_in_timestep)
     else:
